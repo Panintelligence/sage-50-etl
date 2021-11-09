@@ -77,6 +77,18 @@ def executeScriptsFromFile(filename):
             f = open(logfile, "a+")
             f.write("%s \rERROR %s" % (current_time, ex) + " " + command)
 
+def resolve_type(column_type, none_as_varchar):
+    if column_type is None:
+        if none_as_varchar:
+            return "VARCHAR(MAX)"
+        return "DATETIME"
+        
+    return str(column_type).replace("SMALLINT", "INT")\
+        .replace("TINYINT", "INT")\
+        .replace("DOUBLE", "decimal(18,2)")\
+        .replace("VARCHAR", "VARCHAR(MAX)")\
+        .replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")
+
 ######
 hardkey = "dashboard"
 ######
@@ -153,14 +165,11 @@ try:
                 SQLData.commit()
                 result = "CREATE TABLE " + tb + "("
                 columns = []
+                found_datetime = False
                 for col in cursor2.columns(tb):
-                    datatype = str(col.type_name)
-                    datatype = datatype.replace("SMALLINT", "INT")
-                    datatype = datatype.replace("TINYINT", "INT")
-                    datatype = datatype.replace("DOUBLE", "decimal(18,2)")
-                    datatype = datatype.replace("VARCHAR", "VARCHAR(MAX)")
-                    datatype = datatype.replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")
-                    datatype = datatype.replace("None", "DATETIME")
+                    datatype = resolve_type(col.type_name, found_datetime)
+                    if not found_datetime:
+                        found_datetime = datatype == "DATETIME"
                     colstr = str(" [" + col.column_name + "] " + datatype + ",")
                     columns.append(str(col.column_name))
                     result = result + colstr
