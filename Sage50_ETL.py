@@ -151,14 +151,16 @@ try:
             tb = table.table_name
             if tb in exclude:
                 continue
-            print(tb)
+            print(f"Setting up table: {tb}")
             if comcount == 0:
                 tcheck = ("IF OBJECT_ID('%s', 'U') IS NOT NULL DROP TABLE %s" % (tb, tb))
+                print(f"Dropping {tb} if it exists...")
                 SQLData.execute(tcheck)
                 SQLData.commit()
                 result = "CREATE TABLE " + tb + "("
                 columns = []
                 found_datetime = False
+                print(f"Building query to (re)create {tb}...")
                 for col in cursor2.columns(tb):
                     datatype = resolve_type(col.type_name, found_datetime)
                     if not found_datetime:
@@ -167,6 +169,8 @@ try:
                     columns.append(str(col.column_name))
                     result = result + colstr
                 result = result + "[PI_ID] INT )"
+                print(f"Building {tb} with query:")
+                print(result)
                 SQLData.execute(result)
                 SQLData.commit()
 
@@ -176,23 +180,30 @@ try:
 
             # Only keep 90 days of audit data
             auditremove = "DELETE FROM SAGE50_ETL_AUDIT WHERE ISNULL(DATEDIFF(D,Started_Update,GETDATE()),91) > 90 "
+            print("Removing old audits...")
             SQLData.execute(auditremove)
             SQLData.commit()
 
             # Insert start time into audit check table
             auditinsert = ("INSERT INTO SAGE50_ETL_AUDIT (Table_Name, Started_Update, Completed_Update, PI_ID) VALUES(?, GETDATE(), NULL, ?) ")
+            print("Adding audit information...")
             SQLData.execute(auditinsert, tb, comcount)
             SQLData.commit()
             # Get the insert ID
             SQLData.execute("SELECT MAX(ID) FROM SAGE50_ETL_AUDIT")
             row = SQLData.fetchone()
+            print("Fetching latest audit id...")
             auditid = row[0]
 
 
             # now go and get the data from within each table #
             getdata = ("SELECT * FROM %s " % tb)
+            print(f"Selecting data from {tb}...")
             cursor2.execute(getdata)
+            print("Grabbing columns...")
             columns = [column[0] for column in cursor2.description]
+            print("Got columns:")
+            print(columns)
             records = 0
             while True:
                 result = cursor2.fetchmany(5000)
@@ -214,6 +225,7 @@ try:
             print("Records Updated: %s\n" % str(records))
              # Insert end time into audit check table
             auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
+            print("Updating audits...")
             SQLData.execute(auditinsert, auditid)
             SQLData.commit()
         comcount = comcount + 1
