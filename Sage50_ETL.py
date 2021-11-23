@@ -75,11 +75,12 @@ def resolve_type(column_type, none_as_varchar):
             return "VARCHAR(MAX)"
         return "DATETIME"
         
-    return str(column_type).replace("SMALLINT", "INT")\
+    return str(column_type).upper().replace("SMALLINT", "INT")\
         .replace("TINYINT", "INT")\
-        .replace("DOUBLE", "decimal(18,2)")\
+        .replace("DOUBLE", "DECIMAL(18,2)")\
         .replace("VARCHAR", "VARCHAR(MAX)")\
-        .replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")
+        .replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")\
+        .replace("TIMESTAMP", "VARCHAR(MAX)")
 
 ######
 hardkey = "dashboard"
