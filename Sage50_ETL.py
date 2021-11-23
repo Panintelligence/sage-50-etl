@@ -1,16 +1,10 @@
 import sqlite3
-from sqlite3 import Error
-import sys
 import six
 import base64
-import uuid
-import getpass
 import pyodbc
 import datetime
-import math
 import os.path
 import time
-import decimal
 
 start = time.time()
 logfile = "Sage50DataErrorsLog.txt"
@@ -69,8 +63,6 @@ def executeScriptsFromFile(filename):
             #print(command)
             SQL_conn.execute(command)
             SQL_conn.commit()
-        #except Exception as inst:
-        #    print("Command skipped: ", inst)
         except Exception as ex:
             print("\rERROR: %s" % ex)
             current_time = datetime.datetime.now()
