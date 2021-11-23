@@ -5,6 +5,7 @@ import pyodbc
 import datetime
 import os.path
 import time
+import traceback
 
 start = time.time()
 logfile = "Sage50DataErrorsLog.txt"
@@ -202,31 +203,60 @@ try:
             cursor2.execute(getdata)
             print("Grabbing columns...")
             columns = [column[0] for column in cursor2.description]
-            print("Got columns:")
-            print(columns)
+            print(f"Got {len(columns)} columns")
             records = 0
             while True:
                 print(f"Fetching batch of 5000 records for {tb}")
                 result = cursor2.fetchmany(5000)
+                batch_records = int(len(result))
+                records = records + batch_records
+                print(f"Got {batch_records} records for this batch ({records} so far)")
                 if not result:
                     print(f"Got null. Skipping...")
                     break
-                records = records + int(len(result))
-                if len(result) == 0:
+                if batch_records == 0:
                     print("Got no results, moving on...")
                     auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
                     SQLData.execute(auditinsert, auditid)
                     SQLData.commit()
                     continue
                 no_of_columns = len(result[0])
-                print(f"Preparing query to insert {no_of_columns} values in one row...")
+                print(f"Preparing query to insert {no_of_columns} values in {batch_records} rows...")
                 cols = ['?'] * no_of_columns
                 sql = ("INSERT INTO %s VALUES (%s, %d)") % (tb, ",".join(cols), comcount)
-                print(f"Inserting data...")
-                SQLData.fast_executemany = True
-                SQLData.executemany(sql, result)
-                SQLData.commit()
-
+                try:
+                    print(f"Attempting to insert {int(len(result))} rows (fast)...")
+                    SQLData.fast_executemany = True
+                    print("Executing...")
+                    SQLData.executemany(sql, result)
+                    print("Committing results...")
+                    SQLData.commit()
+                except Exception as e:
+                    print(e)
+                    traceback.print_exc()
+                    print("Rolling back previously failed changes...")
+                    SQLData.rollback()
+                    try:
+                        print(f"Retrying to insert {int(len(result))} rows...")
+                        SQLData.fast_executemany = False
+                        print("Executing...")
+                        SQLData.executemany(sql, result)
+                        print("Committing results...")
+                        SQLData.commit()
+                    except:
+                        print("Rolling back previously failed changes...")
+                        SQLData.rollback()
+                        print(f"Retrying to insert {int(len(result))} (slow) rows...")
+                        print("Executing...")
+                        for row in result:
+                            try:
+                                SQLData.execute(sql, row)
+                                print("Committing results...")
+                                SQLData.commit()
+                            except:
+                                print("Rolling back previously failed changes...")
+                                SQLData.rollback()
+                        
             print("Records Updated: %s\n" % str(records))
              # Insert end time into audit check table
             auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
