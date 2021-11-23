@@ -206,22 +206,27 @@ try:
             print(columns)
             records = 0
             while True:
+                print(f"Fetching batch of 5000 records for {tb}")
                 result = cursor2.fetchmany(5000)
-                records = records + int(len(result))
                 if not result:
+                    print(f"Got null. Skipping...")
                     break
+                records = records + int(len(result))
                 if len(result) == 0:
+                    print("Got no results, moving on...")
                     auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
                     SQLData.execute(auditinsert, auditid)
                     SQLData.commit()
                     continue
-                NoOfColumns = len(result[0])
-                cols = ['?'] * NoOfColumns
+                no_of_columns = len(result[0])
+                print(f"Preparing query to insert {no_of_columns} values in one row...")
+                cols = ['?'] * no_of_columns
                 sql = ("INSERT INTO %s VALUES (%s, %d)") % (tb, ",".join(cols), comcount)
+                print(f"Inserting data...")
                 SQLData.fast_executemany = True
                 SQLData.executemany(sql, result)
-
                 SQLData.commit()
+
             print("Records Updated: %s\n" % str(records))
              # Insert end time into audit check table
             auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
