@@ -3,3 +3,6 @@ build
 dist
 *.db
 *.spec
+PiDataSources.txt
+*Log.txt
+logo.png
