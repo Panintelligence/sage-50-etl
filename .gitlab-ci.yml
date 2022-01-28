@@ -1,0 +1,13 @@
+stages:
+  - build
+
+build-windows:
+  stage: build
+  tags:
+    - windows
+  script:
+    - cd %CI_PROJECT_DIR%
+    - ./build.bat
+  artifacts:
+    paths:
+      - ./dist

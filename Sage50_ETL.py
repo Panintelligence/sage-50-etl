@@ -1,16 +1,11 @@
 import sqlite3
-from sqlite3 import Error
-import sys
 import six
 import base64
-import uuid
-import getpass
 import pyodbc
 import datetime
-import math
 import os.path
 import time
-import decimal
+import traceback
 
 start = time.time()
 logfile = "Sage50DataErrorsLog.txt"
@@ -69,8 +64,6 @@ def executeScriptsFromFile(filename):
             #print(command)
             SQL_conn.execute(command)
             SQL_conn.commit()
-        #except Exception as inst:
-        #    print("Command skipped: ", inst)
         except Exception as ex:
             print("\rERROR: %s" % ex)
             current_time = datetime.datetime.now()
@@ -83,11 +76,12 @@ def resolve_type(column_type, none_as_varchar):
             return "VARCHAR(MAX)"
         return "DATETIME"
         
-    return str(column_type).replace("SMALLINT", "INT")\
+    return str(column_type).upper().replace("SMALLINT", "INT")\
         .replace("TINYINT", "INT")\
-        .replace("DOUBLE", "decimal(18,2)")\
+        .replace("DOUBLE", "DECIMAL(18,2)")\
         .replace("VARCHAR", "VARCHAR(MAX)")\
-        .replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")
+        .replace("LONG VARCHAR(MAX)", "VARCHAR(MAX)")\
+        .replace("TIMESTAMP", "VARCHAR(MAX)")
 
 ######
 hardkey = "dashboard"
@@ -158,14 +152,16 @@ try:
             tb = table.table_name
             if tb in exclude:
                 continue
-            print(tb)
+            print(f"Setting up table: {tb}")
             if comcount == 0:
                 tcheck = ("IF OBJECT_ID('%s', 'U') IS NOT NULL DROP TABLE %s" % (tb, tb))
+                print(f"Dropping {tb} if it exists...")
                 SQLData.execute(tcheck)
                 SQLData.commit()
                 result = "CREATE TABLE " + tb + "("
                 columns = []
                 found_datetime = False
+                print(f"Building query to (re)create {tb}...")
                 for col in cursor2.columns(tb):
                     datatype = resolve_type(col.type_name, found_datetime)
                     if not found_datetime:
@@ -174,6 +170,8 @@ try:
                     columns.append(str(col.column_name))
                     result = result + colstr
                 result = result + "[PI_ID] INT )"
+                print(f"Building {tb} with query:")
+                print(result)
                 SQLData.execute(result)
                 SQLData.commit()
 
@@ -183,44 +181,86 @@ try:
 
             # Only keep 90 days of audit data
             auditremove = "DELETE FROM SAGE50_ETL_AUDIT WHERE ISNULL(DATEDIFF(D,Started_Update,GETDATE()),91) > 90 "
+            print("Removing old audits...")
             SQLData.execute(auditremove)
             SQLData.commit()
 
             # Insert start time into audit check table
             auditinsert = ("INSERT INTO SAGE50_ETL_AUDIT (Table_Name, Started_Update, Completed_Update, PI_ID) VALUES(?, GETDATE(), NULL, ?) ")
+            print("Adding audit information...")
             SQLData.execute(auditinsert, tb, comcount)
             SQLData.commit()
             # Get the insert ID
             SQLData.execute("SELECT MAX(ID) FROM SAGE50_ETL_AUDIT")
             row = SQLData.fetchone()
+            print("Fetching latest audit id...")
             auditid = row[0]
 
 
             # now go and get the data from within each table #
             getdata = ("SELECT * FROM %s " % tb)
+            print(f"Selecting data from {tb}...")
             cursor2.execute(getdata)
+            print("Grabbing columns...")
             columns = [column[0] for column in cursor2.description]
+            print(f"Got {len(columns)} columns")
             records = 0
             while True:
+                print(f"Fetching batch of 5000 records for {tb}")
                 result = cursor2.fetchmany(5000)
-                records = records + int(len(result))
+                batch_records = int(len(result))
+                records = records + batch_records
+                print(f"Got {batch_records} records for this batch ({records} so far)")
                 if not result:
+                    print(f"Got null. Skipping...")
                     break
-                if len(result) == 0:
+                if batch_records == 0:
+                    print("Got no results, moving on...")
                     auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
                     SQLData.execute(auditinsert, auditid)
                     SQLData.commit()
                     continue
-                NoOfColumns = len(result[0])
-                cols = ['?'] * NoOfColumns
+                no_of_columns = len(result[0])
+                print(f"Preparing query to insert {no_of_columns} values in {batch_records} rows...")
+                cols = ['?'] * no_of_columns
                 sql = ("INSERT INTO %s VALUES (%s, %d)") % (tb, ",".join(cols), comcount)
-                SQLData.fast_executemany = True
-                SQLData.executemany(sql, result)
-
-                SQLData.commit()
+                try:
+                    print(f"Attempting to insert {int(len(result))} rows (fast)...")
+                    SQLData.fast_executemany = True
+                    print("Executing...")
+                    SQLData.executemany(sql, result)
+                    print("Committing results...")
+                    SQLData.commit()
+                except Exception as e:
+                    print(e)
+                    traceback.print_exc()
+                    print("Rolling back previously failed changes...")
+                    SQLData.rollback()
+                    try:
+                        print(f"Retrying to insert {int(len(result))} rows...")
+                        SQLData.fast_executemany = False
+                        print("Executing...")
+                        SQLData.executemany(sql, result)
+                        print("Committing results...")
+                        SQLData.commit()
+                    except:
+                        print("Rolling back previously failed changes...")
+                        SQLData.rollback()
+                        print(f"Retrying to insert {int(len(result))} (slow) rows...")
+                        print("Executing...")
+                        for row in result:
+                            try:
+                                SQLData.execute(sql, row)
+                                print("Committing results...")
+                                SQLData.commit()
+                            except:
+                                print("Rolling back previously failed changes...")
+                                SQLData.rollback()
+                        
             print("Records Updated: %s\n" % str(records))
              # Insert end time into audit check table
             auditinsert = "UPDATE SAGE50_ETL_AUDIT SET Completed_Update = GETDATE() WHERE ID = ? "
+            print("Updating audits...")
             SQLData.execute(auditinsert, auditid)
             SQLData.commit()
         comcount = comcount + 1

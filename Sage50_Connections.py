@@ -1,13 +1,9 @@
 import sqlite3
-from sqlite3 import Error
 import sys
 import six
 import base64
 import uuid
-import getpass
 import pyodbc
-
-
 
 def encryption(key, string):
     encoded_chars = []

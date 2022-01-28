@@ -1,4 +1,6 @@
+pyinstaller
 six
 uuid
 pyodbc
 datetime
+uuid
