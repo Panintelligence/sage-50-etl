@@ -1,0 +1,89 @@
+name: build-release
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  create_release:
+    timeout-minutes: 1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: oprypin/find-latest-tag@v1
+        id: version
+        with:
+          repository: Panintelligence/sage-50-etl
+
+      - name: Up the version
+        run: |
+          VERSION=$(echo "${{ steps.version.outputs.tag }}" | awk -F'.' '{ print $1"."$2"."$3+1 }')
+          echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create tag
+        uses: actions/github-script@v5
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/${{ env.RELEASE_VERSION }}',
+              sha: context.sha
+            })
+
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.RELEASE_VERSION }}
+          name: Release ${{ env.RELEASE_VERSION }}
+          body: Todo - fill with changelog!
+          draft: true
+          updateOnlyUnreleased: true
+
+
+  build-windows:
+    timeout-minutes: 1
+    needs: create_release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get version
+        uses: oprypin/find-latest-tag@v1
+        id: version
+        with:
+          repository: Panintelligence/sage-50-etl
+
+      - name: Build
+        run: ./build.bat
+
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          allowUpdates: true
+          draft: true
+          updateOnlyUnreleased: true
+          artifactErrorsFailBuild: true
+          artifacts: dist/*
+
+  publish_release:
+    timeout-minutes: 1
+    needs: build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get version
+        uses: oprypin/find-latest-tag@v1
+        id: version
+        with:
+          repository: Panintelligence/sage-50-etl
+
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          allowUpdates: true
+          makeLatest: true
+          draft: false
